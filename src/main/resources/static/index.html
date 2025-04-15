@@ -10,10 +10,23 @@
 
 <h2>One to One Chat | Spring Boot & WebSocket</h2>
 
-<form id="usernameForm">
-    <!-- your input fields -->
-    <button type="submit">Submit</button>
-</form>
+<div class="user-form" id="username-page">
+    <h2>Enter Chatroom</h2>
+    <form id="usernameForm">
+        <label for="username">Username:</label>
+        <input type="text" id="username" name="username" required>
+
+        <label for="firstName">First Name:</label>
+        <input type="text" id="firstName" name="firstName" required>
+
+        <button type="submit">Enter Chatroom</button>
+    </form>
+</div>
+
+<!--<form id="usernameForm">-->
+<!--    &lt;!&ndash; your input fields &ndash;&gt;-->
+<!--    <button type="submit">Submit</button>-->
+<!--</form>-->
 
 <div class="chat-container hidden" id="chat-page">
     <div class="users-list">

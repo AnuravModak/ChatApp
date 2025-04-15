@@ -1,6 +1,6 @@
 'use strict';
 
-//const usernamePage = document.querySelector('#username-page');
+const usernamePage = document.querySelector('#username-page');
 const chatPage = document.querySelector('#chat-page');
 const usernameForm = document.querySelector('#usernameForm');
 const messageForm = document.querySelector('#messageForm');
@@ -85,11 +85,12 @@ const profiles = [
 let currentUser= profiles[3];
 
 let stompClient = null;
-let username = currentUser.username;
-let firstName = currentUser.firstName;
+let username =  null;//currentUser.username;
+let firstName = null;//currentUser.firstName;
 let selectedUserId = null;
 let onlineUsers = new Set(); // Keep track of online users
-
+let previousWindow=null;
+var activeUsersInWindow = new Set();
 
 async function getNotificationSummary(username) {
     const userNotifResponse = await fetch(`/messages/${username}/allNotifications`);
@@ -110,12 +111,33 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 });
 
+async function onSameWindow(payload) {
+    const data = JSON.parse(payload.body);
+    console.log("Received window presence event: ", data);
+
+    const { sender, recipientId, event } = data;
+
+    if (recipientId !== username) return;
+
+    if (event === "JOINED") {
+        activeUsersInWindow.add(sender);
+        console.log(`${sender} joined your window. Current watchers:`, [...activeUsersInWindow]);
+    } else if (event === "LEFT") {
+        activeUsersInWindow.delete(sender);
+        console.log(`${sender} left your window. Current watchers:`, [...activeUsersInWindow]);
+    }
+}
+
+
 async function connect(event) {
     event.preventDefault();
 
+    username = document.querySelector('#username').value.trim();
+    firstName = document.querySelector('#firstName').value.trim();
+
     if (username && firstName) {
+       usernamePage.classList.add('hidden');
        const notifData = await getNotificationSummary(username);
-       console.log("Notifications for this user", notifData);
 
        const dropdown = document.getElementById("notificationDropdown");
        const notificationCountEl = document.getElementById("notification-count");
@@ -129,17 +151,10 @@ async function connect(event) {
                const notifDiv = document.createElement("div");
                notifDiv.className = "notification";
 
-
-
-               // Assuming notifData has an array or a way to get individual notification details
-               // You'll need to modify this part based on the structure of your notifData
-               // Example: if notifData.notifications is an array of messages
                if (notifData && notifData[i] && notifData[i].chatId) {
                    // Improved formattedName: remove recipientId and the preceding underscore
                    var formattedName = notifData[i].chatId.replace(`${notifData[i].recipientId}`, "");
                    var newformattedName = formattedName.replace("_","");
-
-                   console.log("You have a new notification from ",  newformattedName);
                    notifDiv.textContent = `You have a new messages from ${newformattedName}`;
                } else {
                    // Handle cases where notification details are missing
@@ -169,26 +184,43 @@ async function connect(event) {
 
 function onConnected() {
     stompClient.subscribe(`/user/${username}/queue/messages`, onMessageReceived);
-    stompClient.subscribe(`/user/${username}/queue/typing`, onMessageReceived);
+    stompClient.subscribe(`/user/${username}/queue/typing`, onTypingStatus);
+    stompClient.subscribe(`/user/${username}/queue/sameWindow`, onSameWindow);
+    stompClient.subscribe(`/user/${username}/queue/leaveWindow`, onSameWindow);
+    stompClient.subscribe(`/user/${username}/queue/Notifications`, onNotificationReceived);
     stompClient.subscribe(`/user/public`, onMessageReceived);
     stompClient.subscribe(`/topic/onlineUsers`, onActiveUsers);
 
-    stompClient.send("/app/onlineUser",
-                {},
-                JSON.stringify({username: username, firstName: firstName})
-            );
+    // Send the current user information to the server
+    stompClient.send("/app/onlineUser", {}, JSON.stringify({ username: username, firstName: firstName }));
 
+    // Register the connected user
+    stompClient.send("/app/user/addUser", {}, JSON.stringify({ username: username, firstName: firstName, status: 'ONLINE' }));
 
-    console.log("Sent message to '/app/typingStatus' ");
-
-     //register the connected user
-    stompClient.send("/app/user/addUser",
-        {},
-        JSON.stringify({username: username, firstName: firstName, status: 'ONLINE'})
-    );
-
+    // Set the connected user's first name
     document.querySelector('#connected-user-firstName').textContent = firstName;
+
     findAndDisplayConnectedUsers().then();
+}
+
+async function onNotificationReceived(payload) {
+
+    const notification = JSON.parse(payload.body);
+    // Handle the notification logic here
+    const notifiedUser = document.querySelector(`#${notification.senderId}`);
+    if (notifiedUser && !notifiedUser.classList.contains('active')) {
+        const nbrMsg = notifiedUser.querySelector('.nbr-msg');
+        if (!nbrMsg) {
+            const newNbrMsg = document.createElement('span');
+            newNbrMsg.classList.add('nbr-msg');
+            newNbrMsg.textContent = '';
+            notifiedUser.appendChild(newNbrMsg);
+        } else {
+            nbrMsg.classList.remove('hidden');
+            nbrMsg.textContent = '';
+        }
+    }
+
 }
 
 function sendTyping() {
@@ -212,9 +244,6 @@ function sendTyping() {
 }
 
 async function onActiveUsers(payload) {
-    console.log("Connected to active users websocket");
-    console.log("Payload from onActiveUsers:", payload.body);
-
     onlineUsers = new Set(JSON.parse(payload.body));
 
     await findAndDisplayConnectedUsers(); // Ensure users are in the DOM first
@@ -224,8 +253,14 @@ async function onActiveUsers(payload) {
 
 async function findAndDisplayConnectedUsers() {
     // Simulate API response using hardcoded profiles
-    let connectedUsers = profiles.filter(user => user.username !== currentUser.username);
+    //    let connectedUsers = profiles.filter(user => user.username !== currentUser.username);
+    //
+    //    const connectedUsersList = document.getElementById('connectedUsers');
+    //    connectedUsersList.innerHTML = '';
 
+    const connectedUsersResponse = await fetch('/users');
+    let connectedUsers = await connectedUsersResponse.json();
+    connectedUsers = connectedUsers.filter(user => user.username !== username);
     const connectedUsersList = document.getElementById('connectedUsers');
     connectedUsersList.innerHTML = '';
 
@@ -268,6 +303,7 @@ function appendUserElement(user, connectedUsersList) {
 
 function updateUserStatus() {
     const userElements = document.querySelectorAll('.user-item');
+    console.log("Online users: ", onlineUsers);
     userElements.forEach(userElement => {
         const userId = userElement.id;
         let statusIndicator = userElement.querySelector('.status-indicator');
@@ -290,22 +326,46 @@ function updateUserStatus() {
 
 
 function userItemClick(event) {
+
+    // Remove 'active' class from all user items
     document.querySelectorAll('.user-item').forEach(item => {
         item.classList.remove('active');
     });
-    messageForm.classList.remove('hidden');
 
+    // Show message form
+    messageForm.classList.remove('hidden');
     const clickedUser = event.currentTarget;
     clickedUser.classList.add('active');
 
-    selectedUserId = clickedUser.getAttribute('id');
+    const recipientId = clickedUser.getAttribute('id');
+    selectedUserId  = clickedUser.getAttribute('id');
+    // Notify previous window user that you left
+    if (previousWindow && previousWindow !== recipientId) {
+        var leaveMessage = {
+            sender: username,
+            recipientId: previousWindow,
+            event: "LEFT"
+        };
+        stompClient.send("/app/leaveWindow", {}, JSON.stringify(leaveMessage));
+    }
+
+    // Notify the newly clicked user you joined their window
+    var sameWindowMessage = {
+        sender: username,
+        recipientId: recipientId,
+        event: "JOINED"
+    };
+    stompClient.send("/app/sameWindow", {}, JSON.stringify(sameWindowMessage));
+
+    // Update previousWindow to the newly clicked user
+    previousWindow = recipientId;
     fetchAndDisplayUserChat().then();
 
+    // Optionally hide unread msg count
     const nbrMsg = clickedUser.querySelector('.nbr-msg');
-    nbrMsg.classList.add('hidden');
-    nbrMsg.textContent = '0';
-
+    // nbrMsg?.classList.add('hidden');
 }
+
 
 function displayMessage(senderId, content) {
     const messageContainer = document.createElement('div');
@@ -323,9 +383,7 @@ function displayMessage(senderId, content) {
 
 async function fetchAndDisplayUserChat() {
     const userChatResponse = await fetch(`/messages/${username}/${selectedUserId}`);
-    console.log("loading the path ..",`/messages/${username}/${selectedUserId}` );
     const userChat = await userChatResponse.json();
-    console.log("loading user chat response ... ", userChat);
     chatArea.innerHTML = '';
     userChat.forEach(chat => {
         displayMessage(chat.senderId, chat.content);
@@ -338,18 +396,19 @@ function onError() {
     connectingElement.style.color = 'red';
 }
 
-
 function sendMessage(event) {
     const messageContent = messageInput.value.trim();
+    console.log("Active users while sending message ", activeUsersInWindow);
 
-    console.log("Selected user id ", selectedUserId, username, messageContent);
-
-    if (messageContent && stompClient && selectedUserId) {
+    if (messageContent && stompClient && selectedUserId && activeUsersInWindow) {
+        const isRecipientActive = activeUsersInWindow.has(selectedUserId);
+        console.log("what is the status: ", isRecipientActive);
         const chatMessage = {
             senderId: username,
             recipientId: selectedUserId,
             content: messageContent,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            status: isRecipientActive ? "DELIVERED" : "SENT"
         };
 
         stompClient.send("/app/chat", {}, JSON.stringify(chatMessage));
@@ -363,68 +422,13 @@ function sendMessage(event) {
 
 async function onMessageReceived(payload) {
     await findAndDisplayConnectedUsers();
-    console.log('Message received', payload);
+
     const message = JSON.parse(payload.body);
+    console.log('Message received inside onMessageReceived', message);
 
-    // Handle typing notifications
-    if (message.typing && message.sender !== username) {
-        // Display "typing..." in the user list
-        const userListItem = document.getElementById(message.sender);
-        if (userListItem) {
-            const typingIndicator = userListItem.querySelector('.typing-indicator');
-            if (!typingIndicator) {
-                const newTypingIndicator = document.createElement('span');
-                newTypingIndicator.classList.add('typing-indicator');
-                newTypingIndicator.textContent = " is typing...";
-                userListItem.appendChild(newTypingIndicator);
-            } else {
-                typingIndicator.textContent = " is typing...";
-            }
-
-            clearTimeout(userListItem.typingTimeout);
-            userListItem.typingTimeout = setTimeout(() => {
-                const typingIndicator = userListItem.querySelector('.typing-indicator');
-                if (typingIndicator) {
-                    typingIndicator.remove();
-                }
-            }, 1000);
-        }
-
-        // Display "typing..." in the main chat area (if selected)
-        if (selectedUserId === message.sender) {
-            const typingDiv = document.getElementById("typing");
-            if (typingDiv) {
-                typingDiv.textContent = message.sender + " is typing...";
-                clearTimeout(typingIndicator);
-                typingIndicator = setTimeout(() => {
-                    typingDiv.textContent = "";
-                }, 1000);
-            }
-        }
-    }
-
-    // Handle chat messages (non-typing)
-    if (!message.typing) {
-        if (selectedUserId && selectedUserId === message.senderId) {
-            // Display message in chat area
-            displayMessage(message.senderId, message.content);
-            chatArea.scrollTop = chatArea.scrollHeight;
-        } else {
-            // Display notification dot if not in the same chat
-            const notifiedUser = document.querySelector(`#${message.senderId}`);
-            if (notifiedUser && !notifiedUser.classList.contains('active')) {
-                const nbrMsg = notifiedUser.querySelector('.nbr-msg');
-                if (!nbrMsg) {
-                    const newNbrMsg = document.createElement('span');
-                    newNbrMsg.classList.add('nbr-msg');
-                    newNbrMsg.textContent = '';
-                    notifiedUser.appendChild(newNbrMsg);
-                } else {
-                    nbrMsg.classList.remove('hidden');
-                    nbrMsg.textContent = '';
-                }
-            }
-        }
+    if (message.senderId && message.content && selectedUserId === message.senderId) {
+        displayMessage(message.senderId, message.content);
+        chatArea.scrollTop = chatArea.scrollHeight;
     }
 
     // Update active user status
@@ -433,6 +437,34 @@ async function onMessageReceived(payload) {
     } else {
         messageForm.classList.add('hidden');
     }
+}
+
+async function onTypingStatus(payload) {
+    const message = JSON.parse(payload.body);
+    // Only show typing status if the sender is the currently selected user
+    if (message.typing && message.sender !== username) {
+            // Display "typing..." in the user list
+            const userListItem = document.getElementById(message.sender);
+            if (userListItem) {
+                const typingIndicator = userListItem.querySelector('.typing-indicator');
+                if (!typingIndicator) {
+                    const newTypingIndicator = document.createElement('span');
+                    newTypingIndicator.classList.add('typing-indicator');
+                    newTypingIndicator.textContent = " is typing...";
+                    userListItem.appendChild(newTypingIndicator);
+                } else {
+                    typingIndicator.textContent = " is typing...";
+                }
+
+                clearTimeout(userListItem.typingTimeout);
+                userListItem.typingTimeout = setTimeout(() => {
+                    const typingIndicator = userListItem.querySelector('.typing-indicator');
+                    if (typingIndicator) {
+                        typingIndicator.remove();
+                    }
+                }, 1000);
+            }
+}
 }
 
 
@@ -452,7 +484,7 @@ function onLogout() {
 
 
 
-usernameForm.addEventListener('submit', connect)
+usernameForm.addEventListener('submit', connect,true);
 messageForm.addEventListener('submit', sendMessage);
 logout.addEventListener('click', onLogout, true);
 //Add the typing div to the chat area.

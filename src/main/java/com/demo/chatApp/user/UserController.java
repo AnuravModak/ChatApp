@@ -42,34 +42,6 @@ public class UserController {
         this.keyRepository=keyRepository;
     }
 
-//    private AppUser encryptUserData(AppUser user) {
-//        try {
-//            Long keyId = keyRepository.findActiveKeyId();
-//            if (keyId == null) {
-//                throw new RuntimeException("Failed to save new user as key Id is null");
-//            }
-//
-//            user.setKeyId(keyId);
-////            String publicKeyPem = keyRepository.findActivePublicKey(keyId);
-////            String privateKeyPem = keyRepository.findActivePrivateKey(keyId); // may not be needed now
-////
-////            // Convert PEM string to PublicKey
-////            PublicKey publicKey = encryption.getPublicKeyFromString(publicKeyPem);
-////
-////            // Encrypt user fields
-////            String encryptedFullName = encryption.encryptWithPublicKey(user.getFullName(), publicKey);
-////            String encryptedNickName = encryption.encryptWithPublicKey(user.getNickName(), publicKey);
-////
-////            // Set encrypted data
-////            user.setFullName(encryptedFullName);
-////            user.setNickName(encryptedNickName);
-//
-//            return user;
-//        } catch (Exception e) {
-//            throw new RuntimeException("Failed to encrypt user data", e);
-//        }
-//    }
-
     @MessageMapping("/user/addUser")
     @SendTo("/user/public")
     public AppUser addUser(
@@ -106,7 +78,7 @@ public class UserController {
         try {
             ObjectMapper objectMapper = new ObjectMapper();
             JsonNode jsonNode = objectMapper.readTree(payload);
-            String username = jsonNode.get("fullName").asText();
+            String username = jsonNode.get("username").asText();
 
 
 
@@ -114,7 +86,7 @@ public class UserController {
             if (accessor.getSessionAttributes() == null) {
                 accessor.setSessionAttributes(new HashMap<>());
             }
-            accessor.getSessionAttributes().put("fullName", username);
+            accessor.getSessionAttributes().put("username", username);
 
             onlineUsers.add(username);
             return onlineUsers;
@@ -131,6 +103,37 @@ public class UserController {
         String recipient = typingMessage.get("recipientId");
         messagingTemplate.convertAndSendToUser(recipient, "/queue/typing", typingMessage);
     }
+
+    @MessageMapping("/sameWindow")
+    public void sameWindow(@Payload Map<String, String> sameWindowMessage) {
+        String recipientId = sameWindowMessage.get("recipientId");
+        String sender = sameWindowMessage.get("sender");
+        String event = sameWindowMessage.get("event"); // should be "LEFT"
+
+        if (recipientId != null && sender != null && event != null) {
+            messagingTemplate.convertAndSendToUser(
+                    recipientId,
+                    "/queue/sameWindow",
+                    sameWindowMessage
+            );
+        }
+    }
+
+    @MessageMapping("/leaveWindow")
+    public void leaveWindow(@Payload Map<String, String> leaveMessage) {
+        String recipientId = leaveMessage.get("recipientId");
+        String sender = leaveMessage.get("sender");
+        String event = leaveMessage.get("event"); // should be "LEFT"
+
+        if (recipientId != null && sender != null && event != null) {
+            messagingTemplate.convertAndSendToUser(
+                    recipientId,
+                    "/queue/leaveWindow",
+                    leaveMessage
+            );
+        }
+    }
+
 
     @MessageMapping("/offlineUser")
     @SendTo("/topic/onlineUsers")

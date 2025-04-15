@@ -30,11 +30,11 @@ public class UserService {
 
 
     public void disconnect(AppUser user) {
-        if (user == null || user.getNickName() == null) {
+        if (user == null || user.getUsername() == null) {
             throw new IllegalArgumentException("User or Nickname cannot be null");
         }
 
-        repository.findById(user.getNickName()).ifPresent(storedUser -> {
+        repository.findById( user.getUsername() ).ifPresent(storedUser -> {
             storedUser.setStatus(Status.OFFLINE);
             repository.save(storedUser);
         });

@@ -42,15 +42,15 @@ public class ChatController {
         chatMessage.setStatus(MessageStatus.SENT);
         ChatMessage savedMsg = chatMessageService.save(chatMessage);
 
-//        messagingTemplate.convertAndSendToUser(
-//                chatMessage.getRecipientId(), "/queue/messages",
-//                new ChatNotification(
-//                        savedMsg.getId(),
-//                        savedMsg.getSenderId(),
-//                        savedMsg.getRecipientId(),
-//                        savedMsg.getContent()
-//                )
-//        );
+        messagingTemplate.convertAndSendToUser(
+                chatMessage.getRecipientId(), "queue/messages",
+                chatMessage
+        );
+
+        messagingTemplate.convertAndSendToUser(
+                chatMessage.getRecipientId(), "queue/Notifications",
+                chatNotificationService.getAllNotificationsForUser(chatMessage.getRecipientId())
+        );
     }
 
     @GetMapping("/messages/{senderId}/{recipientId}")

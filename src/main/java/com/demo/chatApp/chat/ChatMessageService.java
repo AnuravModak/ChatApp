@@ -37,6 +37,8 @@ public class ChatMessageService {
                 .orElseThrow(); // You can create your own dedicated exception
         chatMessage.setChatId(chatId);
 
+        System.out.println("chat message from save method :"+ chatMessage.getStatus());
+
         chatNotificationService.incrementSentStatusCountByChatId(chatId,chatMessage.getRecipientId());
 
         boolean retval =chatNotificationService.markMessageDeliveredForChatId(chatId,chatMessage.getSenderId());
