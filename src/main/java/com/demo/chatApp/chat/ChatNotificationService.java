@@ -24,12 +24,10 @@ public class ChatNotificationService {
         }
 
         try {
-            System.out.println("Inside this 0.. ");
             Optional<ChatNotification> optionalNotification =
                     chatNotificationRepository.findByChatIdAndRecipientId(chatId, recipientId);
 
             if (optionalNotification.isPresent()) {
-                System.out.println("Inside this 1.. ");
                 chatNotificationRepository.incrementSentCount(chatId, recipientId);
             } else {
                 System.out.println("Inside this 2.. ");

@@ -37,16 +37,18 @@ public class ChatController {
 
     @MessageMapping("/chat")
     public void processMessage(@Payload ChatMessage chatMessage) {
-
-        System.out.println("Printing chat message "+ chatMessage.getSenderId());
-        chatMessage.setStatus(MessageStatus.SENT);
-        ChatMessage savedMsg = chatMessageService.save(chatMessage);
+        if (chatMessage.getStatus()== null || chatMessage.getStatus()==MessageStatus.SENT){
+            chatMessage.setStatus(MessageStatus.SENT);
+            ChatMessage savedMsg = chatMessageService.save(chatMessage, 0);
+        }
+        else{
+            ChatMessage savedMsg = chatMessageService.save(chatMessage, 1);
+        }
 
         messagingTemplate.convertAndSendToUser(
                 chatMessage.getRecipientId(), "queue/messages",
                 chatMessage
         );
-
         messagingTemplate.convertAndSendToUser(
                 chatMessage.getRecipientId(), "queue/Notifications",
                 chatNotificationService.getAllNotificationsForUser(chatMessage.getRecipientId())
@@ -91,8 +93,7 @@ public class ChatController {
                     .body("Error: " + e.getMessage());
         }
     }
-
-
+    
     // get notification summary when a user logs in
     @GetMapping ("/messages/{senderId}/allNotifications")
     public List<ChatNotification> getAllNotifications(@PathVariable String senderId) {

@@ -31,25 +31,25 @@ public class ChatMessageService {
 
 
 
-    public ChatMessage save(ChatMessage chatMessage) {
+    public ChatMessage save(ChatMessage chatMessage, int flag) {
         var chatId = chatRoomService
                 .getChatRoomId(chatMessage.getSenderId(), chatMessage.getRecipientId(), true)
                 .orElseThrow(); // You can create your own dedicated exception
         chatMessage.setChatId(chatId);
 
-        System.out.println("chat message from save method :"+ chatMessage.getStatus());
-
-        chatNotificationService.incrementSentStatusCountByChatId(chatId,chatMessage.getRecipientId());
-
-        boolean retval =chatNotificationService.markMessageDeliveredForChatId(chatId,chatMessage.getSenderId());
-        if (retval){
-            System.out.println("Message was seen by "+chatMessage.getSenderId());
+        if (flag==0){
+            chatNotificationService.incrementSentStatusCountByChatId(chatId,chatMessage.getRecipientId());
+            boolean retval =chatNotificationService.markMessageDeliveredForChatId(chatId,chatMessage.getSenderId());
+            markMessageDelivered(chatId,chatMessage.getSenderId());
+            repository.save(chatMessage);
         }
-        else{
-            System.out.println("Sender is sending first message to this recipient "+chatMessage.getRecipientId());
+        else if (flag==1){
+            chatNotificationService.incrementSentStatusCountByChatId(chatId,chatMessage.getRecipientId());
+            boolean retval =chatNotificationService.markMessageDeliveredForChatId(chatId,chatMessage.getSenderId());
+            boolean retval1 =chatNotificationService.markMessageDeliveredForChatId(chatId,chatMessage.getRecipientId());
+            markMessageDelivered(chatId,chatMessage.getSenderId());
+            repository.save(chatMessage);
         }
-        markMessageDelivered(chatId,chatMessage.getSenderId());
-        repository.save(chatMessage);
         return chatMessage;
     }
 
