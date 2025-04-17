@@ -91,6 +91,8 @@ let selectedUserId = null;
 let onlineUsers = new Set(); // Keep track of online users
 let previousWindow=null;
 var activeUsersInWindow = new Set();
+let notifications = [];
+
 
 async function getNotificationSummary(username) {
     const userNotifResponse = await fetch(`/messages/${username}/allNotifications`);
@@ -113,18 +115,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
 async function onSameWindow(payload) {
     const data = JSON.parse(payload.body);
-    console.log("Received window presence event: ", data);
-
     const { sender, recipientId, event } = data;
 
     if (recipientId !== username) return;
 
     if (event === "JOINED") {
         activeUsersInWindow.add(sender);
-        console.log(`${sender} joined your window. Current watchers:`, [...activeUsersInWindow]);
+        //        console.log(`${sender} joined your window. Current watchers:`, [...activeUsersInWindow]);
     } else if (event === "LEFT") {
         activeUsersInWindow.delete(sender);
-        console.log(`${sender} left your window. Current watchers:`, [...activeUsersInWindow]);
+        //        console.log(`${sender} left your window. Current watchers:`, [...activeUsersInWindow]);
+    }
+    console.log("Active users on my chat window", activeUsersInWindow);
+    // 👇 Re-fetch messages if the sender is the selected user
+    if (selectedUserId === sender) {
+        //        console.log(`Re-fetching messages because ${sender} ${event}`);
+        await fetchAndDisplayUserChat();
     }
 }
 
@@ -199,29 +205,49 @@ function onConnected() {
 
     // Set the connected user's first name
     document.querySelector('#connected-user-firstName').textContent = firstName;
-
     findAndDisplayConnectedUsers().then();
 }
 
 async function onNotificationReceived(payload) {
-
     const notification = JSON.parse(payload.body);
-    // Handle the notification logic here
-    const notifiedUser = document.querySelector(`#${notification.senderId}`);
-    if (notifiedUser && !notifiedUser.classList.contains('active')) {
-        const nbrMsg = notifiedUser.querySelector('.nbr-msg');
-        if (!nbrMsg) {
-            const newNbrMsg = document.createElement('span');
-            newNbrMsg.classList.add('nbr-msg');
-            newNbrMsg.textContent = '';
-            notifiedUser.appendChild(newNbrMsg);
-        } else {
-            nbrMsg.classList.remove('hidden');
-            nbrMsg.textContent = '';
-        }
-    }
+    console.log("Notification received: ", notification);
 
+    // Avoid duplicate entries based on chatId
+    const exists = notifications.find(n => n.chatId === notification.chatId);
+    if (!exists) {
+        notifications.push(notification);
+        updateNotificationUI();
+    }
 }
+
+function updateNotificationUI() {
+    const dropdown = document.getElementById('notificationDropdown');
+    const countSpan = document.getElementById('notification-count');
+
+    // Clear the dropdown
+    dropdown.innerHTML = '';
+
+    // Render current notifications
+    notifications.forEach(notification => {
+        const entry = document.createElement('div');
+        entry.classList.add('notification');
+        entry.setAttribute('data-chatid', notification.chatId);
+        entry.textContent = `New message from ${notification.chatId}`;
+        dropdown.appendChild(entry);
+    });
+
+    // Update the bell count
+    if (notifications.length > 0) {
+        countSpan.textContent = notifications.length;
+        countSpan.style.display = 'inline';
+    } else {
+        countSpan.textContent = '0';
+        countSpan.style.display = 'none';
+    }
+}
+
+
+
 
 function sendTyping() {
     if (stompClient && selectedUserId) {
@@ -245,18 +271,12 @@ function sendTyping() {
 
 async function onActiveUsers(payload) {
     onlineUsers = new Set(JSON.parse(payload.body));
-
     await findAndDisplayConnectedUsers(); // Ensure users are in the DOM first
     updateUserStatus();
 }
 
 
 async function findAndDisplayConnectedUsers() {
-    // Simulate API response using hardcoded profiles
-    //    let connectedUsers = profiles.filter(user => user.username !== currentUser.username);
-    //
-    //    const connectedUsersList = document.getElementById('connectedUsers');
-    //    connectedUsersList.innerHTML = '';
 
     const connectedUsersResponse = await fetch('/users');
     let connectedUsers = await connectedUsersResponse.json();
@@ -303,7 +323,6 @@ function appendUserElement(user, connectedUsersList) {
 
 function updateUserStatus() {
     const userElements = document.querySelectorAll('.user-item');
-    console.log("Online users: ", onlineUsers);
     userElements.forEach(userElement => {
         const userId = userElement.id;
         let statusIndicator = userElement.querySelector('.status-indicator');
@@ -326,7 +345,6 @@ function updateUserStatus() {
 
 
 function userItemClick(event) {
-
     // Remove 'active' class from all user items
     document.querySelectorAll('.user-item').forEach(item => {
         item.classList.remove('active');
@@ -338,7 +356,8 @@ function userItemClick(event) {
     clickedUser.classList.add('active');
 
     const recipientId = clickedUser.getAttribute('id');
-    selectedUserId  = clickedUser.getAttribute('id');
+    selectedUserId = recipientId;
+
     // Notify previous window user that you left
     if (previousWindow && previousWindow !== recipientId) {
         var leaveMessage = {
@@ -359,37 +378,65 @@ function userItemClick(event) {
 
     // Update previousWindow to the newly clicked user
     previousWindow = recipientId;
+
+    // Fetch and display chat history
     fetchAndDisplayUserChat().then();
 
-    // Optionally hide unread msg count
+    // ✅ Remove notifications related to this recipient
+    notifications = notifications.filter(n => n.chatId !== recipientId);
+
+    // ✅ Re-render the notification dropdown and count
+    updateNotificationUI();
+
+    // Hide unread dot beside the user (if present)
     const nbrMsg = clickedUser.querySelector('.nbr-msg');
-    // nbrMsg?.classList.add('hidden');
+    if (nbrMsg) {
+        nbrMsg.classList.add('hidden');
+    }
 }
 
 
-function displayMessage(senderId, content) {
+
+
+function displayMessage(senderId, content, status) {
     const messageContainer = document.createElement('div');
     messageContainer.classList.add('message');
+
     if (senderId === username) {
         messageContainer.classList.add('sender');
     } else {
         messageContainer.classList.add('receiver');
     }
+
     const message = document.createElement('p');
     message.textContent = content;
+
+    // Apply color based on message status
+    if (status === "SENT") {
+        message.style.backgroundColor = "orange";
+    } else if (status === "DELIVERED") {
+        message.style.backgroundColor = "green";
+    } else {
+        message.style.backgroundColor = "#f1f1f1"; // default fallback
+    }
+
     messageContainer.appendChild(message);
     chatArea.appendChild(messageContainer);
 }
+
 
 async function fetchAndDisplayUserChat() {
     const userChatResponse = await fetch(`/messages/${username}/${selectedUserId}`);
     const userChat = await userChatResponse.json();
     chatArea.innerHTML = '';
+
     userChat.forEach(chat => {
-        displayMessage(chat.senderId, chat.content);
+        displayMessage(chat.senderId, chat.content, chat.status);
     });
+
     chatArea.scrollTop = chatArea.scrollHeight;
 }
+
 
 function onError() {
     connectingElement.textContent = 'Could not connect to WebSocket server. Please refresh this page to try again!';
@@ -412,12 +459,14 @@ function sendMessage(event) {
         };
 
         stompClient.send("/app/chat", {}, JSON.stringify(chatMessage));
-        displayMessage(username, messageContent);
+        displayMessage(username, messageContent, chatMessage.status);
         messageInput.value = '';
         chatArea.scrollTop = chatArea.scrollHeight;
     }
+
     event.preventDefault();
 }
+
 
 
 async function onMessageReceived(payload) {
@@ -427,17 +476,17 @@ async function onMessageReceived(payload) {
     console.log('Message received inside onMessageReceived', message);
 
     if (message.senderId && message.content && selectedUserId === message.senderId) {
-        displayMessage(message.senderId, message.content);
+        displayMessage(message.senderId, message.content, message.status);
         chatArea.scrollTop = chatArea.scrollHeight;
     }
 
-    // Update active user status
     if (selectedUserId) {
         document.querySelector(`#${selectedUserId}`).classList.add('active');
     } else {
         messageForm.classList.add('hidden');
     }
 }
+
 
 async function onTypingStatus(payload) {
     const message = JSON.parse(payload.body);
